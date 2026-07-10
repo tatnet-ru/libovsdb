@@ -341,6 +341,139 @@ func TestConnectionManagerInactivityProbeDisconnect(t *testing.T) {
 	}
 }
 
+// TestConnectionManagerNotLeaderFailsOver verifies that CmdNotLeader rotates the endpoint list and
+// reconnects to the next available endpoint, emitting EventReconnected on lifecycleCh.
+func TestConnectionManagerNotLeaderFailsOver(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+
+	// Two independent in-process servers: A (initial leader) and B (failover target).
+	serverA, sockA := newOVSDBServer(t, defDB, defSchema)
+	t.Cleanup(serverA.Close)
+	require.Eventually(t, func() bool { return serverA.Ready() }, time.Second, 10*time.Millisecond)
+
+	serverB, sockB := newOVSDBServer(t, defDB, defSchema)
+	t.Cleanup(serverB.Close)
+	require.Eventually(t, func() bool { return serverB.Ready() }, time.Second, 10*time.Millisecond)
+
+	endpointA := fmt.Sprintf("unix:%s", sockA)
+	endpointB := fmt.Sprintf("unix:%s", sockB)
+
+	// Endpoints order: [A, B]. WithReconnect enables the reconnect loop inside CmdNotLeader.
+	opts, err := newOptions(
+		WithEndpoint(endpointA),
+		WithEndpoint(endpointB),
+		WithReconnect(2*time.Second, &backoff.ZeroBackOff{}),
+	)
+	require.NoError(t, err)
+
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
+	go cm.Run()
+	defer func() {
+		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
+	}()
+
+	// Connect to endpoint A.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	respCh := make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdConnect, ResponseCh: respCh, Ctx: ctx}
+	r := <-respCh
+	require.NoError(t, r.Err)
+
+	epRespCh := make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdQueryEndpoint, ResponseCh: epRespCh}
+	epR := <-epRespCh
+	require.Equal(t, endpointA, epR.EndpointAddress, "should start connected to endpoint A")
+
+	// Signal not-leader: CM rotates endpoints to [B, A] and enters the reconnect loop.
+	respCh = make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdNotLeader, ResponseCh: respCh}
+	<-respCh
+
+	// runReconnectLoop connects to B and sends EventReconnected.
+	select {
+	case ev := <-lifecycleCh:
+		assert.Equal(t, EventReconnected, ev.Type, "expected EventReconnected after leader failover")
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not receive EventReconnected within 5s after CmdNotLeader")
+	}
+
+	// State must be Connected and the active endpoint must be B.
+	respCh = make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdQueryState, ResponseCh: respCh}
+	stateR := <-respCh
+	assert.Equal(t, StateConnected, stateR.State)
+
+	epRespCh = make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdQueryEndpoint, ResponseCh: epRespCh}
+	epR = <-epRespCh
+	assert.Equal(t, endpointB, epR.EndpointAddress, "active endpoint should be B after failover")
+}
+
+// TestConnectionManagerNotLeaderNoReconnectDisconnects verifies that CmdNotLeader with no reconnect
+// backoff configured leaves the CM in StateDisconnected and RPCs return ErrNotConnected.
+// This covers the edge case where leaderOnly is used without a reconnect policy.
+func TestConnectionManagerNotLeaderNoReconnectDisconnects(t *testing.T) {
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+	server, sock := newOVSDBServer(t, defDB, defSchema)
+	t.Cleanup(server.Close)
+	require.Eventually(t, func() bool { return server.Ready() }, time.Second, 10*time.Millisecond)
+
+	endpoint := fmt.Sprintf("unix:%s", sock)
+	// No WithReconnect: opts.backoff is nil, so runReconnectLoop returns immediately without
+	// sending any lifecycle event.
+	opts, err := newOptions(WithEndpoint(endpoint))
+	require.NoError(t, err)
+
+	lifecycleCh := make(chan Event, 8)
+	eventCh := make(chan Event, 64)
+	cm := NewConnectionManager(opts, "Open_vSwitch", []string{"Open_vSwitch"}, lifecycleCh, eventCh)
+	go cm.Run()
+	defer func() {
+		cm.CommandChannel() <- Command{Type: CmdClose, ResponseCh: make(chan CommandResult, 1)}
+	}()
+
+	// Connect.
+	respCh := make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdConnect, ResponseCh: respCh, Ctx: context.Background()}
+	r := <-respCh
+	require.NoError(t, r.Err)
+
+	// Send CmdNotLeader. With no backoff, runReconnectLoop exits immediately.
+	respCh = make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdNotLeader, ResponseCh: respCh}
+	<-respCh
+
+	// No lifecycle event should be emitted.
+	select {
+	case ev := <-lifecycleCh:
+		t.Fatalf("unexpected lifecycle event %v: CmdNotLeader with no backoff should send no event", ev.Type)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no event.
+	}
+
+	// State must be Disconnected.
+	respCh = make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{Type: CmdQueryState, ResponseCh: respCh}
+	stateR := <-respCh
+	assert.Equal(t, StateDisconnected, stateR.State)
+
+	// RPC calls must return ErrNotConnected.
+	respCh = make(chan CommandResult, 1)
+	cm.CommandChannel() <- Command{
+		Type: CmdCall, CallMethod: "echo", CallArgs: ovsdb.NewEchoArgs(), CallReply: new([]any),
+		ResponseCh: respCh, Ctx: context.Background(),
+	}
+	rpcR := <-respCh
+	assert.Equal(t, ErrNotConnected, rpcR.Err)
+}
+
 // TestConnectionManagerEchoError verifies that when the server returns an error from Echo (DoEcho(false)),
 // a direct CmdEcho returns that error to the caller.
 func TestConnectionManagerEchoError(t *testing.T) {
