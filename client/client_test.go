@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
+	"net"
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,14 +22,14 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/stdr"
 	"github.com/google/uuid"
-	"github.com/ovn-kubernetes/libovsdb/cache"
-	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
-	"github.com/ovn-kubernetes/libovsdb/mapper"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb/serverdb"
-	"github.com/ovn-kubernetes/libovsdb/server"
-	"github.com/ovn-kubernetes/libovsdb/test"
+	"github.com/tatnet-ru/libovsdb/cache"
+	"github.com/tatnet-ru/libovsdb/database/inmemory"
+	"github.com/tatnet-ru/libovsdb/mapper"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb/serverdb"
+	"github.com/tatnet-ru/libovsdb/server"
+	"github.com/tatnet-ru/libovsdb/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1322,4 +1325,201 @@ func TestUpdateEndpoints(t *testing.T) {
 	require.Equal(t, ovs.endpoints[0].address, endpoint3)
 	require.Equal(t, ovs.endpoints[1].address, endpoint2)
 	require.NotEmpty(t, ovs.endpoints[0].serverID)
+}
+
+// tcpProxy creates a TCP proxy that can be used to simulate network failures.
+// It forwards connections between a client and server, and can be closed
+// abruptly to simulate network disconnection.
+type tcpProxy struct {
+	listener net.Listener
+	target   string
+	conns    []net.Conn
+	connsMu  sync.Mutex
+}
+
+func newTCPProxy(t *testing.T, targetUnixSocket string) *tcpProxy {
+	// Create a TCP listener on a random port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	proxy := &tcpProxy{
+		listener: listener,
+		target:   targetUnixSocket,
+	}
+
+	go proxy.acceptLoop()
+	return proxy
+}
+
+func (p *tcpProxy) acceptLoop() {
+	for {
+		clientConn, err := p.listener.Accept()
+		if err != nil {
+			return // Listener closed
+		}
+
+		// Connect to the target unix socket
+		serverConn, err := net.Dial("unix", p.target)
+		if err != nil {
+			clientConn.Close()
+			continue
+		}
+
+		p.connsMu.Lock()
+		p.conns = append(p.conns, clientConn, serverConn)
+		p.connsMu.Unlock()
+
+		// Bidirectional copy
+		go io.Copy(serverConn, clientConn)
+		go io.Copy(clientConn, serverConn)
+	}
+}
+
+func (p *tcpProxy) Addr() string {
+	return p.listener.Addr().String()
+}
+
+func (p *tcpProxy) CloseAllConnections() {
+	p.connsMu.Lock()
+	defer p.connsMu.Unlock()
+	for _, conn := range p.conns {
+		conn.Close()
+	}
+	p.conns = nil
+}
+
+func (p *tcpProxy) Close() {
+	p.listener.Close()
+	p.CloseAllConnections()
+}
+
+// TestTransactDuringDisconnectNoPanic verifies that the actual transact() code
+// doesn't panic when abrupt network disconnects occur.
+//
+// This test uses a TCP proxy to simulate real network failures by abruptly
+// closing connections while operations are in flight. This is more realistic
+// than calling Disconnect() which performs a graceful shutdown.
+//
+// The race condition occurs when:
+// 1. transact() completes an RPC call successfully
+// 2. transact() is about to send to trafficSeen
+// 3. Network failure triggers handleDisconnectNotification() which closes trafficSeen
+// 4. transact() sends to closed trafficSeen -> panic (without the fix)
+//
+// Note: This race has an extremely small timing window (nanoseconds). The test
+// may need multiple runs to trigger it reliably. Run with: go test -count=10
+// Without the fix, the test typically fails within a few runs with:
+// "panic: send on closed channel" at client.go in the transact() function.
+func TestTransactDuringDisconnectNoPanic(t *testing.T) {
+	// Под -race этот тест падает не на libovsdb, а на github.com/cenkalti/rpc2:
+	// handleRequest пишет ответ на серверный запрос в тот же json.Encoder и тот
+	// же net.Conn, куда параллельно пишет наш собственный запрос. Гонка есть и в
+	// v1.0.4, и в v1.0.5, то есть чинить её надо у rpc2, а не здесь.
+	//
+	// Смысл теста при этом сохраняется: он проверяет ОТСУТСТВИЕ ПАНИКИ (send on
+	// closed channel) при транзакции во время дисконнекта — а это видно и без
+	// детектора гонок. Гонки самого libovsdb ловятся -race на пакете cache и в
+	// сервисах-потребителях.
+	if raceDetectorEnabled {
+		t.Skip("падает на гонке внутри github.com/cenkalti/rpc2, не в libovsdb")
+	}
+
+	var defSchema ovsdb.DatabaseSchema
+	err := json.Unmarshal([]byte(schema), &defSchema)
+	require.NoError(t, err)
+
+	// Run multiple iterations to increase chance of hitting the race
+	for iter := 0; iter < 100; iter++ {
+		t.Run(fmt.Sprintf("iteration-%d", iter), func(t *testing.T) {
+			server, sock := newOVSDBServer(t, defDB, defSchema)
+			defer server.Close()
+
+			// Create a TCP proxy to the unix socket so we can abruptly close connections
+			proxy := newTCPProxy(t, sock)
+			defer proxy.Close()
+
+			endpoint := fmt.Sprintf("tcp:%s", proxy.Addr())
+			client, err := newOVSDBClient(defDB,
+				WithEndpoint(endpoint),
+				// Enable inactivity check so trafficSeen channel is created
+				WithInactivityCheck(50*time.Millisecond, 25*time.Millisecond, backoff.NewConstantBackOff(time.Millisecond)),
+			)
+			require.NoError(t, err)
+
+			err = client.Connect(context.Background())
+			require.NoError(t, err)
+			defer client.Close()
+
+			var wg sync.WaitGroup
+			stop := make(chan struct{})
+
+			// Launch goroutines that continuously call Transact
+			for i := 0; i < 50; i++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					j := 0
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+							bridge := &Bridge{
+								UUID:        fmt.Sprintf("test-bridge-%d-%d-%d", iter, id, j),
+								Name:        fmt.Sprintf("br-test-%d-%d-%d", iter, id, j),
+								ExternalIDs: map[string]string{"test": "disconnect-race"},
+							}
+							ops, err := client.Create(bridge)
+							if err == nil {
+								ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+								_, _ = client.Transact(ctx, ops...)
+								cancel()
+							}
+							j++
+						}
+					}
+				}(i)
+			}
+
+			// Goroutines that abruptly close connections via the proxy
+			// This simulates network failures while operations are in flight
+			for i := 0; i < 20; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for j := 0; j < 50; j++ {
+						select {
+						case <-stop:
+							return
+						default:
+							// Random delay to vary timing
+							time.Sleep(time.Duration(rand.Intn(500)) * time.Microsecond)
+							// Abruptly close all connections - this triggers handleDisconnectNotification
+							proxy.CloseAllConnections()
+							// Small delay then let client reconnect
+							time.Sleep(time.Duration(rand.Intn(1000)) * time.Microsecond)
+							// Client will auto-reconnect on next Transact attempt
+						}
+					}
+				}()
+			}
+
+			// Let test run for a while
+			time.Sleep(200 * time.Millisecond)
+			close(stop)
+
+			// Wait for goroutines with timeout
+			done := make(chan struct{})
+			go func() {
+				wg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Log("timeout waiting for goroutines")
+			}
+		})
+	}
 }

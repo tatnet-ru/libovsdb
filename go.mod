@@ -1,10 +1,10 @@
-module github.com/ovn-kubernetes/libovsdb
+module github.com/tatnet-ru/libovsdb
 
 go 1.22.0
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/cenkalti/rpc2 v1.0.4
+	github.com/cenkalti/rpc2 v1.0.5
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/stdr v1.2.2
 	github.com/go-playground/validator/v10 v10.26.0

@@ -3,9 +3,9 @@ package server
 import (
 	"testing"
 
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/test"
-	"github.com/ovn-kubernetes/libovsdb/updates"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/test"
+	"github.com/tatnet-ru/libovsdb/updates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

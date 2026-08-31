@@ -3,7 +3,7 @@ package updates
 import (
 	"reflect"
 
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 func removeFromSlice(a, b reflect.Value) (reflect.Value, bool) {

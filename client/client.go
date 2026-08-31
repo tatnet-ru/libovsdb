@@ -17,11 +17,11 @@ import (
 	"github.com/cenkalti/rpc2"
 	"github.com/cenkalti/rpc2/jsonrpc"
 	"github.com/go-logr/logr"
-	"github.com/ovn-kubernetes/libovsdb/cache"
-	"github.com/ovn-kubernetes/libovsdb/mapper"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb/serverdb"
+	"github.com/tatnet-ru/libovsdb/cache"
+	"github.com/tatnet-ru/libovsdb/mapper"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb/serverdb"
 )
 
 // Constants defined for libovsdb
@@ -99,6 +99,11 @@ type ovsdbClient struct {
 	disconnect    chan struct{}
 	shutdown      bool
 	shutdownMutex sync.Mutex
+
+	// disconnected is set to true when the client is disconnecting,
+	// to prevent further sends to trafficSeen channel
+	disconnected      bool
+	disconnectedMutex sync.Mutex
 
 	handlerShutdown *sync.WaitGroup
 
@@ -300,7 +305,6 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 		}
 	}
 
-	go o.handleDisconnectNotification()
 	if o.options.inactivityTimeout > 0 {
 		o.handlerShutdown.Add(1)
 		go o.handleInactivityProbes()
@@ -316,6 +320,10 @@ func (o *ovsdbClient) connect(ctx context.Context, reconnect bool) error {
 			close(eventStopChan)
 		}(db)
 	}
+
+	// handleDisconnectNotification must be started after all Add() calls
+	// to handlerShutdown, since it will call Wait() on reconnection
+	go o.handleDisconnectNotification()
 
 	o.connected = true
 	return nil
@@ -419,6 +427,8 @@ func (o *ovsdbClient) tryEndpoint(ctx context.Context, u *url.URL) (string, erro
 // Should only be called when the mutex is held
 func (o *ovsdbClient) createRPC2Client(conn net.Conn) {
 	o.stopCh = make(chan struct{})
+	// Reset disconnected flag before creating new trafficSeen channel
+	o.setDisconnected(false)
 	if o.options.inactivityTimeout > 0 {
 		o.trafficSeen = make(chan struct{})
 	}
@@ -839,7 +849,7 @@ func (o *ovsdbClient) transact(ctx context.Context, dbName string, skipChWrite b
 		return nil, err
 	}
 
-	if !skipChWrite && o.trafficSeen != nil {
+	if !skipChWrite && o.trafficSeen != nil && !o.isDisconnected() {
 		select {
 		case o.trafficSeen <- struct{}{}:
 		default:
@@ -1231,9 +1241,11 @@ func (o *ovsdbClient) handleDisconnectNotification() {
 	<-o.rpcClient.DisconnectNotify()
 	// close the stopCh, which will stop the cache event processor
 	close(o.stopCh)
-	if o.trafficSeen != nil {
-		close(o.trafficSeen)
-	}
+	// Set disconnected to prevent further sends to trafficSeen channel.
+	// We don't close trafficSeen because handleInactivityProbes() will
+	// exit via stopCh (already closed above), and closing trafficSeen
+	// would race with concurrent sends in transact().
+	o.setDisconnected(true)
 	o.metrics.numDisconnects.Inc()
 	// wait for client related handlers to shutdown
 	o.handlerShutdown.Wait()
@@ -1343,6 +1355,21 @@ func (o *ovsdbClient) Close() {
 	defer o.shutdownMutex.Unlock()
 	o.shutdown = true
 	o.rpcClient.Close()
+}
+
+// isDisconnected returns true if the client is in the process of disconnecting.
+// This is used to prevent sending on the trafficSeen channel during disconnect.
+func (o *ovsdbClient) isDisconnected() bool {
+	o.disconnectedMutex.Lock()
+	defer o.disconnectedMutex.Unlock()
+	return o.disconnected
+}
+
+// setDisconnected sets the disconnected state of the client.
+func (o *ovsdbClient) setDisconnected(val bool) {
+	o.disconnectedMutex.Lock()
+	defer o.disconnectedMutex.Unlock()
+	o.disconnected = val
 }
 
 // Ensures the cache is consistent by evaluating that the client is connected

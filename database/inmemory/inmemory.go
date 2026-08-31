@@ -6,11 +6,11 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/ovn-kubernetes/libovsdb/cache"
-	dbase "github.com/ovn-kubernetes/libovsdb/database"
-	"github.com/ovn-kubernetes/libovsdb/database/transaction"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/cache"
+	dbase "github.com/tatnet-ru/libovsdb/database"
+	"github.com/tatnet-ru/libovsdb/database/transaction"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 type inMemoryDatabase struct {
