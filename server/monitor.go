@@ -7,8 +7,8 @@ import (
 
 	"github.com/cenkalti/rpc2"
 	"github.com/google/uuid"
-	"github.com/ovn-kubernetes/libovsdb/database"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/database"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 // connectionMonitors maps a connection to a map or monitors

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ovn-kubernetes/libovsdb/cache"
-	"github.com/ovn-kubernetes/libovsdb/client"
-	"github.com/ovn-kubernetes/libovsdb/example/vswitchd"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/cache"
+	"github.com/tatnet-ru/libovsdb/client"
+	"github.com/tatnet-ru/libovsdb/example/vswitchd"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 // Silly game that detects creation of Bridge named "stop" and exits

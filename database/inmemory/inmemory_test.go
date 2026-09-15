@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ovn-kubernetes/libovsdb/database"
-	"github.com/ovn-kubernetes/libovsdb/mapper"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/test"
+	"github.com/tatnet-ru/libovsdb/database"
+	"github.com/tatnet-ru/libovsdb/mapper"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/test"
 )
 
 func TestWaitOpEquals(t *testing.T) {

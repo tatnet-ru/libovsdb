@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 // ErrColumnNotFound is an error that can occur when the column does not exist for a table

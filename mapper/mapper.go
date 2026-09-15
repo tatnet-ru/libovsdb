@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 // Mapper offers functions to interact with libovsdb through user-provided native structs.

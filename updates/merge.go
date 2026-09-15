@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 func merge(ts *ovsdb.TableSchema, a, b modelUpdate) (modelUpdate, error) {

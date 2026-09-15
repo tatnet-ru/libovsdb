@@ -1,4 +1,4 @@
-module github.com/ovn-kubernetes/libovsdb
+module github.com/tatnet-ru/libovsdb
 
 go 1.25.0
 

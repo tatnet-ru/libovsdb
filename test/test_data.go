@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 // Note that this schema is not strictly a subset of the real OVS schema. It has

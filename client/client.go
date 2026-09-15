@@ -17,11 +17,11 @@ import (
 	"github.com/cenkalti/rpc2"
 	"github.com/cenkalti/rpc2/jsonrpc"
 	"github.com/go-logr/logr"
-	"github.com/ovn-kubernetes/libovsdb/cache"
-	"github.com/ovn-kubernetes/libovsdb/mapper"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb/serverdb"
+	"github.com/tatnet-ru/libovsdb/cache"
+	"github.com/tatnet-ru/libovsdb/mapper"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/ovsdb/serverdb"
 )
 
 // Constants defined for libovsdb

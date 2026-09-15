@@ -6,10 +6,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	"github.com/ovn-kubernetes/libovsdb/database/inmemory"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/test"
+	"github.com/tatnet-ru/libovsdb/database/inmemory"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

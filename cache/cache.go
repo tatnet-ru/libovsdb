@@ -12,10 +12,10 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	"github.com/ovn-kubernetes/libovsdb/mapper"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
-	"github.com/ovn-kubernetes/libovsdb/updates"
+	"github.com/tatnet-ru/libovsdb/mapper"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/updates"
 )
 
 const (

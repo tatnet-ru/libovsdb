@@ -13,9 +13,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/stdr"
 	"github.com/google/uuid"
-	"github.com/ovn-kubernetes/libovsdb/database"
-	"github.com/ovn-kubernetes/libovsdb/model"
-	"github.com/ovn-kubernetes/libovsdb/ovsdb"
+	"github.com/tatnet-ru/libovsdb/database"
+	"github.com/tatnet-ru/libovsdb/model"
+	"github.com/tatnet-ru/libovsdb/ovsdb"
 )
 
 // OvsdbServer is an ovsdb server

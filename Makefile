@@ -37,7 +37,7 @@ test: prebuild
 .PHONY: integration-test
 integration-test:
 	@echo "+ $@"
-	@go test -race -coverprofile=integration.cov -coverpkg=github.com/ovn-kubernetes/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
+	@go test -race -coverprofile=integration.cov -coverpkg=github.com/tatnet-ru/libovsdb/... -timeout 60s -v $(if $(TESTS),-run $(TESTS)) ./test/ovs
 
 .PHONY: coverage
 coverage: test integration-test
