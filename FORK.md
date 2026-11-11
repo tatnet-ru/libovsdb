@@ -102,3 +102,11 @@ cd ../services/ovn && go test -race -run TestIntegration_Reconnect .          # 
 `example/` в апстриме не собирается без `go generate` (нужны модели
 `vswitchd`) — это состояние самого репозитория, а не следствие форка;
 проверено на нетронутом `upstream/main`.
+
+## v0.9.1: обязательные поля wait
+
+`ovsdb.Operation.MarshalJSON` сохраняет `where: []` и `rows: []` у `wait`.
+RFC7047 требует оба поля. Без них нельзя атомарно проверить пустую таблицу
+при миграции OVN identity. Непустые предикаты/строки сохраняются как прежде.
+Проверки: `make prebuild`, `go test -race -short ./...`, `go build ./...`;
+CAS пустой/непустой таблицы дополнительно проверен на OVN 26.03.3 в tatnet-ovn.

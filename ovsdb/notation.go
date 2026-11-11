@@ -67,6 +67,19 @@ func (o Operation) MarshalJSON() ([]byte, error) {
 			Where:   where,
 			OpAlias: (OpAlias)(o),
 		})
+	case "wait":
+		where, rows := o.Where, o.Rows
+		if where == nil {
+			where = make([]Condition, 0)
+		}
+		if rows == nil {
+			rows = make([]Row, 0)
+		}
+		return json.Marshal(&struct {
+			Where []Condition `json:"where"`
+			Rows  []Row       `json:"rows"`
+			OpAlias
+		}{Where: where, Rows: rows, OpAlias: OpAlias(o)})
 	default:
 		return json.Marshal(&struct {
 			OpAlias

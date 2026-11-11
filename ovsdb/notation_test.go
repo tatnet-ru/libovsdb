@@ -280,3 +280,22 @@ func TestOvsSliceToGoNotation(t *testing.T) {
 		})
 	}
 }
+
+// RFC7047 wait requires where and rows even for an empty-table CAS.
+func TestWaitRequiredEmptyFields(t *testing.T) {
+	for _, op := range []Operation{
+		{Op: "wait", Table: "Port_Group", Until: "=="},
+		{Op: "wait", Table: "Port_Group", Where: []Condition{}, Rows: []Row{}, Until: "=="},
+	} {
+		raw, err := json.Marshal(op)
+		require.NoError(t, err)
+		var value map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(raw, &value))
+		require.JSONEq(t, `[]`, string(value["where"]))
+		require.JSONEq(t, `[]`, string(value["rows"]))
+	}
+	op := Operation{Op: "wait", Table: "Port_Group", Rows: []Row{{"name": "full"}}, Where: []Condition{NewCondition("name", ConditionEqual, "full")}, Until: "=="}
+	raw, err := json.Marshal(op)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"rows":[{"name":"full"}]`)
+}
