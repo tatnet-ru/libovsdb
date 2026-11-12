@@ -1,6 +1,6 @@
 module github.com/tatnet-ru/libovsdb
 
-go 1.25.0
+go 1.27.4
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0

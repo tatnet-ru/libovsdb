@@ -14,11 +14,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
+	"github.com/stretchr/testify/suite"
 	"github.com/tatnet-ru/libovsdb/cache"
 	"github.com/tatnet-ru/libovsdb/client"
 	"github.com/tatnet-ru/libovsdb/model"
 	"github.com/tatnet-ru/libovsdb/ovsdb"
-	"github.com/stretchr/testify/suite"
 )
 
 // OVSIntegrationSuite runs tests against a real Open vSwitch instance
@@ -34,6 +34,9 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	var err error
 	suite.pool, err = dockertest.NewPool("")
 	suite.Require().NoError(err)
+	// Failed endpoints must fail this test, not keep every following setup
+	// retrying until the package-wide timeout.
+	suite.pool.MaxWait = 20 * time.Second
 
 	tag := os.Getenv("OVS_VERSION")
 	if tag == "" {
@@ -43,9 +46,10 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	options := &dockertest.RunOptions{
 		Repository:   "ghcr.io/ovn-kubernetes/ovs",
 		Tag:          tag,
+		Name:         "tatnet-libovsdb-test-" + uuid.NewString(),
 		ExposedPorts: []string{"6640/tcp"},
 		PortBindings: map[docker.Port][]docker.PortBinding{
-			"6640/tcp": {{HostPort: "56640"}},
+			"6640/tcp": {{HostIP: "127.0.0.1", HostPort: "56640"}},
 		},
 		Tty: true,
 	}
@@ -60,8 +64,9 @@ func (suite *OVSIntegrationSuite) SetupSuite() {
 	suite.resource, err = suite.pool.RunWithOptions(options, hostConfig)
 	suite.Require().NoError(err)
 
-	// set expiry to 90 seconds so containers are cleaned up on test panic
-	err = suite.resource.Expire(90)
+	// Bound leaked fixture lifetime after a panic, while allowing the full
+	// race/inactivity suite to finish before its server disappears.
+	err = suite.resource.Expire(900)
 	suite.Require().NoError(err)
 
 	// let the container start before we attempt connection
@@ -79,7 +84,7 @@ func (suite *OVSIntegrationSuite) SetupTest() {
 	err = suite.pool.Retry(func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		endpoint := "tcp::56640"
+		endpoint := "tcp:127.0.0.1:56640"
 		ovs, err := client.NewOVSDBClient(
 			defDB,
 			client.WithEndpoint(endpoint),
